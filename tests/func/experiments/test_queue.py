@@ -102,3 +102,22 @@ def test_queue_remove_done(dvc, failed_tasks, success_tasks):
     )
 
     assert dvc.experiments.celery_queue.status() == []
+
+@pytest.mark.xfail
+def test_queue_dont_remove_untracked_files(tmp_dir, dvc, scm):
+    tmp_dir.gen("params.yaml", "foo: 1")
+    stage = dvc.run(
+        cmd="echo ${foo}",
+        params=["foo"],
+        name="echo-foo"
+    )
+    scm.add(
+        [
+            "dvc.yaml",
+            "dvc.lock",
+            ".gitignore",
+        ]
+    )
+    scm.commit("init")
+    dvc.experiments.run(stage.addressing, params=["foo=2"], queue=True)
+    assert (tmp_dir / "params.yaml").exists()

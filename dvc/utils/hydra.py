@@ -3,9 +3,10 @@ from typing import TYPE_CHECKING, List
 
 from hydra import compose, initialize_config_dir
 from hydra._internal.config_loader_impl import ConfigLoaderImpl
+from hydra._internal.core_plugins.basic_sweeper import BasicSweeper
 from hydra.core.override_parser.overrides_parser import OverridesParser
+from hydra.core.override_parser.types import ValueType
 from hydra.errors import ConfigCompositionException, OverrideParseException
-from hydra.types import RunMode
 from omegaconf import OmegaConf
 
 from dvc.exceptions import InvalidArgumentError
@@ -59,11 +60,7 @@ def apply_overrides(path: "StrPath", overrides: List[str]) -> None:
     modify_data = MODIFIERS[suffix]
     with modify_data(path) as original_data:
         try:
-            parser = OverridesParser.create()
-            parsed = parser.parse_overrides(overrides=overrides)
-            ConfigLoaderImpl.validate_sweep_overrides_legal(
-                parsed, run_mode=RunMode.RUN, from_shell=True
-            )
+            parsed = to_hydra_overrides(overrides)
 
             new_data = OmegaConf.create(
                 to_omegaconf(original_data),
@@ -78,3 +75,23 @@ def apply_overrides(path: "StrPath", overrides: List[str]) -> None:
 
         merge_dicts(original_data, new_data)
         remove_missing_keys(original_data, new_data)
+
+
+def to_hydra_overrides(path_overrides):
+    parser = OverridesParser.create()
+    return parser.parse_overrides(overrides=path_overrides)
+
+
+def get_hydra_sweeps(path_overrides, hydra_output_file):
+    hydra_overrides = to_hydra_overrides(path_overrides.pop(hydra_output_file))
+    for override in hydra_overrides:
+        if override.value_type == ValueType.GLOB_CHOICE_SWEEP:
+            raise InvalidArgumentError(
+                f"Glob override '{override.input_line}' is not supported."
+            )
+    splits = BasicSweeper.split_arguments(hydra_overrides, None)[0]
+    sweeps = []
+    for split in splits:
+        path_overrides[hydra_output_file] = split
+        sweeps.append(path_overrides.copy())
+    return sweeps
